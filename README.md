@@ -28,7 +28,7 @@ Produces evolving multi-cycle patterns rather than a single repeated shape.
 
 ## ✨ Features
 
-- PNG → waveform extraction based only on the DEXSCREENER chart’s blue color (#2962FF by default)
+- PNG → waveform extraction based only on the DEXSCREENER chart’s blue color (#2962FF by default)[NOTE: to work on another chart with a different color line, you must update this hex color value]
 - Baseline (dashed center line) auto-detected
 - Missing data automatically interpolated
 - Loop-safe output
