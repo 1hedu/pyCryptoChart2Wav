@@ -44,14 +44,25 @@ Produces evolving multi-cycle patterns rather than a single repeated shape.
 
 ## 📦 Requirements
 
-- Python 2.7  
+**Python 3** (recommended):
+- Python 3.6+
+- Pillow (`pip install pillow`)
+
+**Python 2.7** (legacy):
+- Python 2.7
 - Pillow (`pip install pillow`)
 
 ---
 
 ## 🚀 Usage
 
-Basic:
+**Python 3** (recommended):
+
+```sh
+python3 chart2wav.py chart.png chart.wav
+```
+
+**Python 2.7** (legacy):
 
 ```sh
 python chart_png_to_wave.py chart.png chart.wav
