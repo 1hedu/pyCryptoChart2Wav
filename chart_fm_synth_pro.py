@@ -1,5 +1,3 @@
-dear boy! why hadnt you said so!! There there.. Here:
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -19,7 +17,12 @@ Features:
 - Polyphonic with voice stealing
 
 Requirements:
-    pip install sounddevice numpy scipy pyqt5 mido python-rtmidi
+    Desktop (Linux/Mac/Windows):
+        pip install sounddevice numpy scipy pyqt5 mido python-rtmidi
+
+    Android (Pydroid3):
+        pip install numpy scipy pyqt5 pyjnius
+        Note: Uses Android AudioTrack instead of sounddevice/PortAudio
 """
 
 import os
@@ -35,7 +38,21 @@ from typing import List, Dict, Optional, Any
 from enum import Enum, auto
 
 import numpy as np
-import sounddevice as sd
+import platform
+
+# Make sounddevice optional for Android/Pydroid3 compatibility
+try:
+    import sounddevice as sd
+    HAS_SOUNDDEVICE = True
+except Exception as e:
+    print("sounddevice not available:", e)
+    HAS_SOUNDDEVICE = False
+
+# Detect Android / PyDroid3 environment
+IS_ANDROID = (
+    'ANDROID_ARGUMENT' in os.environ  # PyDroid / Kivy / SL4A style
+    or platform.system().lower().startswith('java')  # some Jython-ish environments
+)
 
 # Try to import Numba for JIT compilation (major speedup)
 try:
@@ -1870,19 +1887,27 @@ class SynthEngine:
 class AudioDriver:
     """Audio output using sounddevice with optimized buffer settings."""
     def __init__(self, engine: SynthEngine, samplerate: int = SAMPLE_RATE, blocksize: int = BLOCK_SIZE):
+        if not HAS_SOUNDDEVICE:
+            raise RuntimeError("sounddevice not available")
+
         self.engine = engine
         self.samplerate = samplerate
         self.blocksize = blocksize
-        
-        # Use higher latency settings for stability
-        self.stream = sd.OutputStream(
-            samplerate=self.samplerate,
-            channels=1,
-            blocksize=self.blocksize,
-            dtype='float32',
-            callback=self._callback,
-            latency='high'  # More buffer room to prevent dropouts
-        )
+
+        try:
+            # Use higher latency settings for stability
+            self.stream = sd.OutputStream(
+                samplerate=self.samplerate,
+                channels=1,
+                blocksize=self.blocksize,
+                dtype='float32',
+                callback=self._callback,
+                latency='high'  # More buffer room to prevent dropouts
+            )
+        except Exception as e:
+            # This is where PyDroid3 will usually explode (PortAudio missing)
+            print("Failed to create sounddevice OutputStream:", e)
+            raise
         
     def _callback(self, outdata, frames, time_info, status):
         if status:
@@ -1901,6 +1926,143 @@ class AudioDriver:
     def stop(self):
         self.stream.stop()
         self.stream.close()
+
+
+# ==============================================================================
+# ANDROID AUDIOTRACK DRIVER (FALLBACK WHEN PORTAUDIO / SOUNDDEVICE FAIL)
+# ==============================================================================
+
+class AndroidAudioTrackDriver(threading.Thread):
+    """
+    Audio output using android.media.AudioTrack via pyjnius.
+
+    Designed for PyDroid3 where PortAudio / sounddevice may not work.
+    Outputs 16-bit mono PCM.
+    """
+    def __init__(self, engine: SynthEngine, samplerate: int = SAMPLE_RATE, blocksize: int = BLOCK_SIZE):
+        super().__init__()
+        self.engine = engine
+        self.samplerate = samplerate
+        self.blocksize = blocksize
+        self.daemon = True
+        self._running = False
+        self._initialized = False
+
+        if not IS_ANDROID:
+            raise RuntimeError("AndroidAudioTrackDriver only makes sense on Android")
+
+        # Try to import pyjnius and grab AudioTrack classes
+        try:
+            from jnius import autoclass
+
+            AudioTrack = autoclass('android.media.AudioTrack')
+            AudioManager = autoclass('android.media.AudioManager')
+            AudioFormat = autoclass('android.media.AudioFormat')
+
+            channel_out_mono = AudioFormat.CHANNEL_OUT_MONO
+            encoding_pcm_16 = AudioFormat.ENCODING_PCM_16BIT
+
+            min_buf = AudioTrack.getMinBufferSize(
+                int(self.samplerate),
+                channel_out_mono,
+                encoding_pcm_16,
+            )
+
+            if min_buf <= 0:
+                raise RuntimeError(f"getMinBufferSize returned {min_buf}")
+
+            # Use a multiple of min buffer to be safe
+            self._frame_bytes = 2  # 16-bit mono
+            self._bytes_per_block = self.blocksize * self._frame_bytes
+
+            buffer_size = max(min_buf, self._bytes_per_block * 2)
+
+            self._audio_track = AudioTrack(
+                AudioManager.STREAM_MUSIC,
+                int(self.samplerate),
+                channel_out_mono,
+                encoding_pcm_16,
+                buffer_size,
+                AudioTrack.MODE_STREAM,
+            )
+
+            self._initialized = True
+
+        except Exception as e:
+            print("Failed to initialize Android AudioTrack backend:", e)
+            self._audio_track = None
+            # Let caller see the failure
+            raise
+
+    def run(self):
+        if not self._initialized or self._audio_track is None:
+            return
+
+        self._running = True
+        self._audio_track.play()
+
+        try:
+            while self._running:
+                # Generate audio
+                block = self.engine.process_block(self.blocksize)  # float32 [-1, 1]
+
+                # Convert to 16-bit little-endian PCM
+                block = np.clip(block, -1.0, 1.0)
+                pcm = (block * 32767.0).astype('<i2').tobytes()
+
+                # Write to AudioTrack; this call blocks until there is space
+                # Signature: write(byte[] audioData, int offsetInBytes, int sizeInBytes)
+                try:
+                    self._audio_track.write(pcm, 0, len(pcm))
+                except Exception as e:
+                    print("AudioTrack write error:", e)
+                    break
+        finally:
+            try:
+                self._audio_track.stop()
+                self._audio_track.release()
+            except Exception:
+                pass
+
+    def start(self):
+        if not self._initialized:
+            raise RuntimeError("AndroidAudioTrackDriver not initialized")
+        super().start()
+
+    def stop(self):
+        self._running = False
+
+
+# ==============================================================================
+# AUDIO DRIVER FACTORY
+# ==============================================================================
+
+def create_audio_driver(engine: SynthEngine,
+                        samplerate: int = SAMPLE_RATE,
+                        blocksize: int = BLOCK_SIZE):
+    """
+    Try sounddevice first; if it fails (e.g. on Android without PortAudio),
+    fall back to Android AudioTrack if available.
+    """
+    # 1) Desktop / anything with working sounddevice
+    if HAS_SOUNDDEVICE:
+        try:
+            drv = AudioDriver(engine, samplerate, blocksize)
+            print("Using sounddevice / PortAudio backend")
+            return drv
+        except Exception as e:
+            print("sounddevice backend unavailable:", e)
+
+    # 2) Android AudioTrack fallback
+    if IS_ANDROID:
+        try:
+            drv = AndroidAudioTrackDriver(engine, samplerate, blocksize)
+            print("Using Android AudioTrack backend")
+            return drv
+        except Exception as e:
+            print("Android AudioTrack backend unavailable:", e)
+
+    raise RuntimeError("No usable audio backend found")
 
 
 # ==============================================================================
@@ -3762,9 +3924,9 @@ def main():
         for op in patch.operators:
             op.wavetable_name = first_wt
     engine.set_patch(patch)
-    
-    # Start audio
-    audio = AudioDriver(engine, samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE)
+
+    # Start audio with automatic backend selection
+    audio = create_audio_driver(engine, samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE)
     audio.start()
     
     # Start MIDI
