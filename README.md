@@ -3,10 +3,8 @@
 Convert cryptocurrency price charts into audio waveforms and synthesizer wavetables.
 
 This project includes two main tools:
-1. **chart2wav** - Command-line chart-to-WAV converter
-2. **Chart FM Synth Pro** - Full-featured FM synthesizer with chart-to-wavetable import
-
-Both tools work on **desktop** (Linux/Mac/Windows) and **Android (Pydroid3)**.
+1. **chart2wav** - Command-line chart-to-WAV converter (works on desktop and Android)
+2. **Chart FM Synth Pro** - Full-featured FM synthesizer with chart-to-wavetable import (desktop only)
 
 ---
 
@@ -56,11 +54,11 @@ Produces evolving multi-cycle patterns rather than a single repeated shape.
 
 ## 📦 Requirements
 
-**Python 3** (recommended):
+**Python 3** (recommended) - Works on desktop and Android:
 - Python 3.6+
 - Pillow (`pip install pillow`)
 
-**Python 2.7** (legacy):
+**Python 2.7** (legacy) - Desktop only:
 - Python 2.7
 - Pillow (`pip install pillow`)
 
@@ -109,6 +107,8 @@ python3 chart2wav.py chart.png output.wav \
 
 A complete FM synthesizer application that imports cryptocurrency chart images as custom wavetables for sound design.
 
+**Platform:** Desktop only (Linux, Mac, Windows) - Requires PyQt5 which is not available on Android/Pydroid3.
+
 ## ✨ Features
 
 ### Synthesis Engine
@@ -135,15 +135,9 @@ A complete FM synthesizer application that imports cryptocurrency chart images a
 - **MIDI support** (note on/off, mod wheel, pitch bend, aftertouch)
 - **Mod matrix** for flexible modulation routing
 
-### Platform Support
-- ✅ **Desktop** (Linux, Mac, Windows) - Uses PortAudio/sounddevice
-- ✅ **Android (Pydroid3)** - Uses native AudioTrack backend
-- Automatic audio backend selection at runtime
-
 ## 📦 Requirements
 
-### Desktop (Linux/Mac/Windows)
-
+**Required:**
 ```sh
 pip install sounddevice numpy scipy pyqt5 pillow
 ```
@@ -158,29 +152,11 @@ pip install mido python-rtmidi
 pip install numba
 ```
 
-### Android (Pydroid3)
-
-```sh
-pip install numpy scipy pyqt5 pillow pyjnius
-```
-
-**Note:** On Android, the synth uses `pyjnius` to access native `android.media.AudioTrack` instead of PortAudio/sounddevice.
-
 ## 🚀 Usage
-
-### Desktop
 
 ```sh
 python3 chart_fm_synth_pro.py
 ```
-
-### Android (Pydroid3)
-
-1. Open Pydroid3
-2. Install dependencies: `pip install numpy scipy pyqt5 pillow pyjnius`
-3. Open `chart_fm_synth_pro.py`
-4. Run the script
-5. You should see: `"Using Android AudioTrack backend"`
 
 ### First Steps
 
@@ -231,23 +207,11 @@ The synth includes 32 DX7-style FM algorithms. Each algorithm defines how the 6 
 
 You can also create **custom matrix** routing by enabling "Custom Matrix" mode and adjusting the modulation amounts directly.
 
-## 🔊 Audio Backend Details
+## 🔊 Audio Backend
 
-### Desktop (PortAudio)
-- Low-latency real-time audio via `sounddevice`
+- Low-latency real-time audio via `sounddevice` (PortAudio)
 - Callback-based processing (1024 sample blocks)
-- Configurable latency settings
-
-### Android (AudioTrack)
-- Native Android audio via `pyjnius`
-- Thread-based streaming (16-bit PCM conversion)
-- Automatic buffer sizing based on device requirements
-- No PortAudio dependency required
-
-The audio backend is selected automatically:
-1. Desktop systems → sounddevice/PortAudio
-2. Android/Pydroid3 → AudioTrack (if sounddevice fails)
-3. Error if neither backend is available
+- Configurable latency settings for stability
 
 ## 📄 Patch Format
 
@@ -341,15 +305,10 @@ See LICENSE file for details.
 
 ## 🐛 Troubleshooting
 
-### "No audio output" on Desktop
+### "No audio output"
 - Check sounddevice installation: `pip install sounddevice`
 - Verify audio device: `python3 -c "import sounddevice; print(sounddevice.query_devices())"`
-- Try increasing buffer size or latency
-
-### "No audio output" on Android
-- Ensure pyjnius is installed: `pip install pyjnius`
-- Check for "Using Android AudioTrack backend" message
-- Verify Android audio permissions
+- Try increasing buffer size or latency in the code
 
 ### "Numba warnings"
 - Numba is optional - synth works without it (just slower)
@@ -365,3 +324,8 @@ See LICENSE file for details.
 - Check that chart has visible blue line (#2962FF)
 - Try adjusting threshold (25-50 range)
 - Different chart colors need `--blue RRGGBB` parameter
+
+### "Can I run the FM synth on Android?"
+- No - PyQt5 is not available on Android/Pydroid3
+- Use the command-line `chart2wav` tool instead to create wavetables on Android
+- Then load those WAVs into desktop synthesizers or DAWs
